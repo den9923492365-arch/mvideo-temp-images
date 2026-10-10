@@ -1,0 +1,49 @@
+name: Validate jsDelivr exact8 MVideo URLs
+
+on:
+  push:
+    paths:
+      - '.github/workflows/validate-jsdelivr-exact8.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate exact 62 jsDelivr CDN URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          eans=(
+            4009839426117
+            4009839306570
+            4009839670145
+            4000530492173
+            6971071270033
+            4052025923037
+            4009839496394
+            4052025459215
+          )
+          count=0
+          for ean in "${eans[@]}"; do
+            for f in normalized/${ean}_*.jpg; do
+              test -f "$f"
+              base="$(basename "$f")"
+              url="https://cdn.jsdelivr.net/gh/${GITHUB_REPOSITORY}@main/normalized/${base}"
+              tmp="$(mktemp)"
+              code="$(curl -L -sS --fail --retry 4 --retry-all-errors --connect-timeout 20 --max-time 120 -w '%{http_code}' -o "$tmp" "$url")"
+              test "$code" = "200"
+              test -s "$tmp"
+              mime="$(file -b --mime-type "$tmp")"
+              test "$mime" = "image/jpeg"
+              size="$(stat -c%s "$tmp")"
+              test "$size" -le 10485760
+              rm -f "$tmp"
+              count=$((count+1))
+            done
+          done
+          echo "JSDELIVR_OK=$count"
+          test "$count" -eq 62
