@@ -1,0 +1,83 @@
+name: MVIDEO CARD16 media transport 20261021
+on:
+  push:
+    paths:
+      - '.github/workflows/card16-media-transport-20261021.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  transport:
+    runs-on: ubuntu-latest
+    env:
+      MEDIA_URL: "https://sdmntprnortheu.oaiusercontent.com/files/00000000-18ec-81f4-be18-a8d820037b5f/raw?se=2026-10-21T09%3A23%3A40Z&sp=r&sv=2026-02-06&sr=b&scid=73fe103a-d09c-5fd1-8854-cd6d39bf6ed9&skoid=697a5987-0cd9-4222-b5b8-500b90fa271b&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-10-21T04%3A14%3A13Z&ske=2026-10-22T04%3A14%3A13Z&sks=b&skv=2026-02-06&sig=9DVySTXhvRM4m0Z6mjinwHhWPtdy4Ux/HYh7li3Gj/E%3D"
+      EXPECTED_ZIP_SHA256: "6159d3ee3764562bdf5bdc7f2f7ab4a4421697eabd1c412a583168594cba71c3"
+      TARGET_DIR: "card16-20261021"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Stage exact accepted media
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-all-errors --connect-timeout 20 -o /tmp/media.zip "$MEDIA_URL"
+          echo "$EXPECTED_ZIP_SHA256  /tmp/media.zip" | sha256sum -c -
+          rm -rf /tmp/media "$TARGET_DIR"
+          mkdir -p /tmp/media "$TARGET_DIR"
+          unzip -q /tmp/media.zip -d /tmp/media
+          before=$(find /tmp/media -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | wc -l | tr -d ' ')
+          test "$before" = "85"
+          test -f "/tmp/media/14_Remington_Keratin_Protect_AS8811/16_ADD_15.jpg"
+          test -f "/tmp/media/14_Remington_Keratin_Protect_AS8811/17_ADD_16.jpg"
+          rm "/tmp/media/14_Remington_Keratin_Protect_AS8811/16_ADD_15.jpg"
+          rm "/tmp/media/14_Remington_Keratin_Protect_AS8811/17_ADD_16.jpg"
+          after=$(find /tmp/media -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | wc -l | tr -d ' ')
+          test "$after" = "83"
+          while IFS= read -r -d '' f; do
+            rel="${f#/tmp/media/}"
+            mkdir -p "$TARGET_DIR/$(dirname "$rel")"
+            cp "$f" "$TARGET_DIR/$rel"
+          done < <(find /tmp/media -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) -print0 | sort -z)
+          copied=$(find "$TARGET_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | wc -l | tr -d ' ')
+          test "$copied" = "83"
+          git config user.name "mvideo-media-transport"
+          git config user.email "actions@github.com"
+          git add "$TARGET_DIR"
+          git diff --cached --quiet && { echo "No staged media changes"; exit 1; }
+          git commit -m "MVIDEO_CARD16_MEDIA_TRANSPORT_EXEC_ID177_20261021 photos 83"
+          PHOTO_COMMIT=$(git rev-parse HEAD)
+          git push origin HEAD:main
+          echo "PHOTO_COMMIT=$PHOTO_COMMIT" >> "$GITHUB_ENV"
+
+      - name: Preflight all 83 pinned jsDelivr links
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'sha256\trepo_path\tjsdelivr_url\tpreflight\n' > "$TARGET_DIR/TRANSPORT_URLS.tsv"
+          count=0
+          while IFS= read -r -d '' f; do
+            sha=$(sha256sum "$f" | awk '{print $1}')
+            rel="${f#"$TARGET_DIR"/}"
+            url="https://cdn.jsdelivr.net/gh/den9923492365-arch/mvideo-temp-images@$PHOTO_COMMIT/$TARGET_DIR/$rel"
+            ok=0
+            for attempt in $(seq 1 12); do
+              if curl -fsSL --connect-timeout 20 "$url" -o /tmp/preflight.bin; then
+                got=$(sha256sum /tmp/preflight.bin | awk '{print $1}')
+                if [ "$got" = "$sha" ]; then
+                  ok=1
+                  break
+                fi
+              fi
+              sleep 5
+            done
+            test "$ok" = "1"
+            printf '%s\t%s/%s\t%s\tHTTP200+SHA256_MATCH\n' "$sha" "$TARGET_DIR" "$rel" "$url" >> "$TARGET_DIR/TRANSPORT_URLS.tsv"
+            count=$((count+1))
+          done < <(find "$TARGET_DIR" -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) -print0 | sort -z)
+          test "$count" = "83"
+          git add "$TARGET_DIR/TRANSPORT_URLS.tsv"
+          git commit -m "MVIDEO_CARD16_MEDIA_TRANSPORT_EXEC_ID177_20261021 preflight 83"
+          git push origin HEAD:main
